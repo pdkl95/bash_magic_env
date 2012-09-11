@@ -65,9 +65,27 @@
 ### Code ###
 
 
+
+###  Trap direct-running, as it's useless
+if [[ $_ == $0 ]] ; then
+cat <<EOF
+Running $(basename $0) directly won't do anything - it cannot
+modify your currently-running shell! Instead, tell your current
+shell to evaluate this file directly. Try running:
+
+    . $0
+
+(the dot '.' at the front is important!)
+EOF
+
+    exit 1
+fi
+
+# our main footprint on the in the environment
 [[ -v MAGIC_ENV        ]] || declare -A MAGIC_ENV
 [[ -v MAGIC_ENV_ACTIVE ]] || declare -A MAGIC_ENV_ACTIVE
 
+# settings
 me_set() { [[ -z "${MAGIC_ENV[${1}]}" ]] && MAGIC_ENV[${1}]="$2" ; };
 me_set SHOW_CHANGES true
 me_set VERBOSE      false
@@ -127,7 +145,7 @@ _magic_env_unload() {
     local var="${MAGIC_ENV_ACTIVE[${old}]}"
     [[ -z "${var}" ]] && return
 
-    echo "UNLOAD: ${old}"
+    ${MAGIC_ENV[VERBOSE]} && echo "UNLOAD: ${old}"
     local unloader="${old}/${MAGIC_ENV[UNLOADER]}"
     [[ -r "${unloader}" ]] && . "${unloader}"
 
