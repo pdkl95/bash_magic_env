@@ -1,6 +1,5 @@
 #!/bin/bash
 
-[[ -v MAGIC_ENV_STACK ]] || declare -a MAGIC_ENV_STACK=()
 [[ -v MAGIC_ENV_ACTIVE ]] || declare -A MAGIC_ENV_ACTIVE=()
 
 _magic_env_listdef() {
@@ -36,7 +35,6 @@ _magic_env_load() {
         declare -p ${env_vars}
 
         MAGIC_ENV_ACTIVE[${new}]=${env_vars}
-        MAGIC_ENV_STACK[${#MAGIC_ENV_STACK[A]}]="$new"
     fi
 
 }
@@ -49,11 +47,6 @@ _magic_env_unload() {
         echo unset ${vars}
         unset ${vars}
         MAGIC_ENV_ACTIVE[${old}]=
-    fi
-
-    if (( last >= 0 )) && [[ "${MAGIC_ENV_STACK[$last]}" == "${old}" ]] ; then
-        echo "unloading: ${old}"
-        unset "MAGIC_ENV_STACK[$last]"
     fi
 }
 
