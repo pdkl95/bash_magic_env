@@ -1,16 +1,76 @@
 #!/bin/bash
 
+### bash_magic_env.bash --- Environment updates when changing directories ###
+
+# Copyright (C) 2012 Brent Sanders
+#
+# Author: Brent Sanders <git@thoughtnoise.net>
+# URL: http://github.com/pdkl95/bash_magic_env
+# Version: 0.1
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+### Comentary ###
+#
+#  Set environment variables as usual in variosu .magic_env fiels
+#  in the directories you want them to be active. They will be
+#  loaded when you cd to the directory, and unloaded when you cd away.
+#
+### Settings ###
+#
+#  If desired, set these before sourcing this file. All settings
+#  are packed into a single associative array, to avoid polluting
+#  the main environment namespace. When changing options, you should
+#  declare that varaible first:
+#
+#    declare -A MAGIC_ENV
+#
+#  Then, set these as needed. If left untouched, it will receive
+#  the default value when sourcing this file.
+#
+#    MAGIC_ENV[LOADER]            (default: ".magic_env")
+#         The name of the files found around the filesystem
+#         thast have the local environment variables.
+#
+#    MAGIC_ENV[UNLOADER]          (default: "${MAGIC_ENV[LOADER]}.unload")
+#         The name of the optional unload callback scripts.
+#
+#    MAGIC_ENV[SHOW_CHANGES]      (default: true)
+#         Send messages to the terminal about any changes
+#         to the environment. Currently, this simply shows
+#         the 'declare -- foo=bar' creation statements, and
+#         the counterpart 'unset' commands.
+#
+#    MAGIC_ENV[VERBOSE]           (default: false)
+#         Be more verbose with what's happening.
+#         Probably only useful during debugging.
+#
+### Installation ###
+#
+#  cd ~/opt
+#  git clone http://github.com/pdkl95/bash_magic_env.git
+#  echo ". ${HOME}/opt/bash_magic_env/bash_magic_env.bash" >> $HOME/.bashrc
+#
+### Code ###
+
+
 [[ -v MAGIC_ENV        ]] || declare -A MAGIC_ENV
 [[ -v MAGIC_ENV_ACTIVE ]] || declare -A MAGIC_ENV_ACTIVE
 
-# [[ -n "${MAGIC_ENV[SHOW_CHANGES]}" ]] && MAGIC_ENV[SHOW_CHANGES]=true
-# [[ -n "${MAGIC_ENV[VERBOSE]}"      ]] && MAGIC_ENV[VERBOSE]=true
-# [[ -n "${MAGIC_ENV[LOADER]}"       ]] && MAGIC_ENV[LOADER]=".magic_env"
-# [[ -n "${MAGIC_ENV[UNLOADER]}"     ]] && MAGIC_ENV[UNLOADER]="${MAGIC_ENV[LOADER]}.unload"
-
 me_set() { [[ -z "${MAGIC_ENV[${1}]}" ]] && MAGIC_ENV[${1}]="$2" ; };
 me_set SHOW_CHANGES true
-me_set VERBOSE      true
+me_set VERBOSE      false
 me_set LOADER       ".magic_env"
 me_set UNLOADER     "${MAGIC_ENV[LOADER]}.unload"
 unset me_set
@@ -24,6 +84,9 @@ EOF
     declare -p | sed -re "${script}" | sort -s
 }
 
+# attempting to diff the environment before and after the load
+# of a the current .magic_env file, so we know what needs of
+# be unloaded later on.
 _magic_env_newdefs() {
     command diff \
         --old-line-format='' \
@@ -74,6 +137,7 @@ _magic_env_unload() {
     MAGIC_ENV_ACTIVE[${old}]=
 }
 
+# must be called every time the workign directory changes!
 _magic_env_update() {
     local pwd="$PWD"
     if [[ "${pwd}" != "${MAGIC_ENV[PWD]}" ]]; then
