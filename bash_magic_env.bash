@@ -99,26 +99,30 @@ _magic_env_listdef() {
 s/^declare\s\S+?\s([^ =]+)=?.*$/\1/g
 EOF
 
-    declare -p | sed -re "${script}" | sort -s
+    declare -p | sed -re "${script}" | sort --stable
 }
 
+_magic_env_list_prune() {
+    command /usr/bin/diff \
+        --old-line-format='' \
+        --unchanged-line-format='' \
+        --new-line-format='%L' \
+        "$@"
+}
 # attempting to diff the environment before and after the load
 # of a the current .magic_env file, so we know what needs of
 # be unloaded later on.
 _magic_env_newdefs() {
-    command diff \
-        --old-line-format='' \
-        --unchanged-line-format='' \
-        --new-line-format='%L' \
-        <(echo "$@") \
-        <(_magic_env_listdef)
+    _magic_env_list_prune <(echo "$@") <(_magic_env_listdef)
 }
 
 _magic_env_load() {
-    local old="${1}" new="${2}"
-    local loader="${new}/${MAGIC_ENV[LOADER]}"
+    local dir="${1}"
+    local loader="${dir}/${MAGIC_ENV[LOADER]}"
 
-    if [[ -n "${MAGIC_ENV_ACTIVE[${new}]}" ]] ; then
+    ${MAGIC_ENV[VERBOSE]} && echo "REQ: [${dir}] -> Load"
+
+    if [[ -n "${MAGIC_ENV_ACTIVE[${dir}]}" ]] ; then
         return    # only if new (no double loading)
     fi
 
@@ -127,40 +131,96 @@ _magic_env_load() {
     fi
 
     local cur env_vars local
-    cur="$(_magic_env_listdef)";
+    prev="$(_magic_env_listdef)";
     . "${loader}"
-    env_vars="$(_magic_env_newdefs "${cur}")"
+    cur="$(_magic_env_listdef)";
+    env_vars="$(_magic_env_list_prune \
+        <(_magic_env_array_to_list "${prev[@]}") \
+        <(_magic_env_array_to_list "${cur[@]}") )"
     len="$(echo "${env_vars}" | wc -w)"
 
     ${MAGIC_ENV[VERBOSE]}      && echo "loaded ${len} vars form: ${loader}"
-    ${MAGIC_ENV[SHOW_CHANGES]} && declare -p ${env_vars}
+    ${MAGIC_ENV[SHOW_CHANGES]} && {
+        (( len > 0 )) && declare -p ${env_vars}
+    }
 
-    MAGIC_ENV_ACTIVE[${new}]=${env_vars}
+    local hdr="active"
+    MAGIC_ENV_ACTIVE[${dir}]="${hdr}|${env_vars}"
 }
 
 _magic_env_unload() {
-    local old="${1}" new="${2}"
-    [[ -z "${old}" ]] && return
+    local dir="${1}"
+    ${MAGIC_ENV[VERBOSE]} && echo "REQ: [${dir}] -> Unload"
 
-    local var="${MAGIC_ENV_ACTIVE[${old}]}"
+    [[ -z "${dir}" ]] && return
+
+    local rec="${MAGIC_ENV_ACTIVE[${dir}]}"
+    local hdr="${rec%%|*}"
+    local var="${rec#*|}"
+
     [[ -z "${var}" ]] && return
 
-    ${MAGIC_ENV[VERBOSE]} && echo "UNLOAD: ${old}"
-    local unloader="${old}/${MAGIC_ENV[UNLOADER]}"
+    ${MAGIC_ENV[VERBOSE]} && echo "UNLOAD: ${dir}"
+    local unloader="${dir}/${MAGIC_ENV[UNLOADER]}"
     [[ -r "${unloader}" ]] && . "${unloader}"
 
     ${MAGIC_ENV[SHOW_CHANGES]} && echo unset ${var}
     unset ${var}
 
-    MAGIC_ENV_ACTIVE[${old}]=
+    MAGIC_ENV_ACTIVE[${dir}]=
+}
+
+_magic_env_scan_parents() {
+    local file="$1"
+    local dir="${PWD}"
+    local -a dirs=()
+    local path last
+    # buffering on a stack to reverse the order
+    # (parent environments should apply before the children)
+    while [[ -n "$dir" ]] ; do
+        dirs[${#dirs[@]}]="$dir"
+        dir="${dir%/*}"
+    done
+
+    while (( ${#dirs[@]} > 0 )) ; do
+        last=${#dirs[@]}
+        dir="${dirs[$last-1]}"
+        unset dirs[$last-1]
+        path="${dir}/${file}"
+        [[ -e "${path}" ]] && echo "${dir}"
+    done
+}
+
+_magic_env_array_to_list() {
+    for i in "${@}" ; do
+        echo "$i"
+    done | sort --stable
 }
 
 # must be called every time the workign directory changes!
 _magic_env_update() {
-    local pwd="$PWD"
+    local pwd="$PWD" dir
     if [[ "${pwd}" != "${MAGIC_ENV[PWD]}" ]]; then
-        _magic_env_unload "${MAGIC_ENV[PWD]}" "${pwd}"
-        _magic_env_load   "${MAGIC_ENV[PWD]}" "${pwd}"
+
+        local -a active=( $(_magic_env_scan_parents "${MAGIC_ENV[LOADER]}") )
+        local -a unload=( $(_magic_env_list_prune \
+            <(_magic_env_array_to_list "${active[@]}") \
+            <(_magic_env_array_to_list "${!MAGIC_ENV_ACTIVE[@]}")) )
+
+        # unloads happen first, to simplify things
+        for dir in "${unload[@]}" ; do
+            _magic_env_unload "${dir}"
+        done
+
+        # these happen in the order the parent-dir scan returned,
+        # which should be general->specific. (that is, it should
+        # load the ourter, parent dirs first, before the child
+        # subdirs that may depend on stuff the parent setus up.
+        for dir in "${active[@]}" ; do
+            _magic_env_load "${dir}"
+        done
+
+        # finally, log the current dir for next time
         MAGIC_ENV[PWD]="${pwd}"
     fi
 }
