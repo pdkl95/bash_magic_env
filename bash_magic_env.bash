@@ -56,6 +56,10 @@
 #         Be more verbose with what's happening.
 #         Probably only useful during debugging.
 #
+#    MAGIC_ENV[CONFDIR]           (default: ${HOME}/.bash_magic_env)
+#         The directory that holds various config data and
+#         environment templates for loading in .magic_env files
+#
 ### Installation ###
 #
 #  cd ~/opt
@@ -69,7 +73,7 @@
 ###  Trap direct-running, as it's useless
 if [[ $_ == $0 ]] ; then
 cat <<EOF
-Running $(basename $0) directly won't do anything - it cannot
+Running $(basename $0) directly will not do anything - it cannot
 modify your currently-running shell! Instead, tell your current
 shell to evaluate this file directly. Try running:
 
@@ -91,6 +95,7 @@ me_set SHOW_CHANGES true
 me_set VERBOSE      false
 me_set LOADER       ".magic_env"
 me_set UNLOADER     "${MAGIC_ENV[LOADER]}.unload"
+me_set CONFDIR      "${XDG_CONFIG_HOME:-${HOME}/.config}/magic_env"
 unset me_set
 
 _magic_env_listdef() {
@@ -131,9 +136,9 @@ _magic_env_load() {
     fi
 
     local cur env_vars local
-    prev="$(_magic_env_listdef)";
+    prev="$(_magic_env_listdef)"
     . "${loader}"
-    cur="$(_magic_env_listdef)";
+    cur="$(_magic_env_listdef)"
     env_vars="$(_magic_env_list_prune \
         <(_magic_env_array_to_list "${prev[@]}") \
         <(_magic_env_array_to_list "${cur[@]}") )"
@@ -225,18 +230,19 @@ _magic_env_update() {
     fi
 }
 
-cd() {
-    if command cd "${@}" ; then
-        _magic_env_update
-        return 0
-    else
-        return $?
-    fi
-}
+if ! [[ -v DEFS_ONLY ]] ; then
+    cd() {
+        if command cd "${@}" ; then
+            _magic_env_update
+            return 0
+        else
+            return $?
+        fi
+    }
 
-
-# finally, update it once for the current directory
-_magic_env_update
+    # finally, update it once for the current directory
+    _magic_env_update
+fi
 
 
 

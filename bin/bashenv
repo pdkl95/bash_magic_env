@@ -1,0 +1,68 @@
+#!/bin/bash
+
+self="${BASH_SOURCE[0]}"
+selfname="$(basename "${self}")"
+loader_src="$(readlink -f "$(dirname "${self}")/../bash_magic_env.bash")"
+
+#echo "Loading: ${loader_src}"
+DEFS_ONLY=true . "${loader_src}"
+
+envdir="${MAGIC_ENV[CONFDIR]}/environments"
+mkdir -p "${envdir}"
+
+envfile_base() { echo "${envdir}/${1}" ; }
+envloader()    { echo "$(envfile_base "${1}")${MAGIC_ENV[LOADER]}"   ; }
+envunloader()  { echo "$(envfile_base "${1}")${MAGIC_ENV[UNLOADER]}" ; }
+
+current_loaders() {
+    _magic_env_scan_parents "${MAGIC_ENV[LOADER]}"
+}
+
+cmd_local() {
+    local from frompath
+    if (( $# > 0 )) ; then
+        derror 'meh'
+    else
+        for dir in $(current_loaders) ; do
+            file="${dir}/${MAGIC_ENV[LOADER]}"
+            from="LOCAL"
+            if [[ -L "${file}" ]] ; then
+                frompath="$(readlink -f "${file}")"
+                from="${frompath#${envdir}/}"
+                if [[ "${from}" != "${frompath}" ]] ; then
+                    from="ENV=${from%${MAGIC_ENV[LOADER]}}"
+                fi
+            fi
+            echo -e "${dir} ${from}"
+        done
+    fi
+}
+
+cmd_help() {
+    cat <<EOF
+usage: ${selfname} <command> [options]
+
+COMMANDS:
+  help [topic]         Display this help, or help on a specific command
+  local [env_to_use]   Display the current locally-loaded environments,
+                       or set the current directory to the named environmet
+EOF
+}
+
+dispatch_cmd() {
+    local cmd="${1:-help}" ; shift
+
+    case "${cmd}" in
+        local) cmd_local ;;
+        help)  cmd_help  ;;
+    esac
+}
+
+dispatch_cmd "$@"
+
+# Local Variables:
+# mode: sh
+# sh-basic-offset: 4
+# sh-shell: bash
+# coding: unix
+# End:
