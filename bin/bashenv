@@ -10,6 +10,13 @@ DEFS_ONLY=true . "${loader_src}"
 envdir="${MAGIC_ENV[CONFDIR]}/environments"
 mkdir -p "${envdir}"
 
+PACKAGE_NAME="bash_magic_env"
+PACKAGE_VERSION="0.2"
+PACKAGE_URL="https://github.com/pdkl95/bash_magic_env"
+PACKAGE_EMAIL="bash_magic_env@thoughtnoise.net"
+PACKAGE_AUTHOR="Brent Sanders"
+PACKAGE_YEARS="2012"
+
 envfile_base() { echo "${envdir}/${1}" ; }
 envloader()    { echo "$(envfile_base "${1}")${MAGIC_ENV[LOADER]}"   ; }
 envunloader()  { echo "$(envfile_base "${1}")${MAGIC_ENV[UNLOADER]}" ; }
@@ -18,9 +25,81 @@ current_loaders() {
     _magic_env_scan_parents "${MAGIC_ENV[LOADER]}"
 }
 
+die() {
+    echo "${selfname}: ERROR - $@" 1>&2
+    exit 1
+}
+
+is_config_var() {
+    [[ 'ok' == "${MAGIC_ENV[${1}]+ok}" ]]
+}
+
+config_keys() {
+    echo "${!MAGIC_ENV[@]}" | tr ' ' '\n' | sort
+}
+
+show_help_header() {
+    cat <<EOF
++-------------------------------+
+| bash magic environment loader |
++-------------------------------+
+
+usage: ${selfname} ${@}
+
+EOF
+}
+
+show_help() {
+    local cmd="${1}" use_msg="${2}"
+    show_help_header "${command} [-h|--help] ${use_msg}"
+    echo "${cmd^^} OPTIONS:"
+    echo -e "$@"
+}
+
+show_help_cmdlist() {
+    cat <<EOF
+COMMANDS:
+  help  [topic]        Display this help, or help on a specific command
+  local [env_to_use]   Display the current locally-loaded environments,
+                       or set the current directory to the named environmet
+EOF
+}
+
+cmd_help_config() {
+    show_help config "[-b|--bash-output] [config var name]"
+}
+
+cmd_help_commands() {
+    show_help_header "<command> [command_options]"
+    show_help_cmdlist
+}
+
+cmd_help() {
+    case "${1}" in
+        config)  cmd_help_config ;;
+        version) cmd_help_version ;;
+        *)       cmd_help_commands ;;
+    esac
+    exit 0
+}
+
+cmd_version() {
+    cat <<EOF
+${PACKAGE_NAME} ${PACKAGE_VERSION}
+For more information or to report a bug at:
+    WWW: ${PACKAGE_URL}
+  EMAIL: <${PACKAGE_EMAIL}>
+Copyright (C) ${PACKAGE_YEARS} ${PACKAGE_AUTHOR}
+This program is free software; you may redistribute it under the terms of
+the GNU General Public License.  This program has absolutely no warranty;
+not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+EOF
+    exit 0
+}
+
 cmd_local() {
     local from frompath
-    if (( $# > 0 )) ; then
+    if (( ${#} > 0 )) ; then
         derror 'meh'
     else
         for dir in $(current_loaders) ; do
@@ -38,23 +117,45 @@ cmd_local() {
     fi
 }
 
-cmd_help() {
-    cat <<EOF
-usage: ${selfname} <command> [options]
+cmd_config() {
+    local bashsafe=false
+    case $1 in
+        -h | --help) cmd_help config ;;
+        -b | --bash-safe) bashsafe=true ; shift ;;
+    esac
 
-COMMANDS:
-  help [topic]         Display this help, or help on a specific command
-  local [env_to_use]   Display the current locally-loaded environments,
-                       or set the current directory to the named environmet
-EOF
+    local opt="${1}" ; shift
+
+    if [[ -n "${opt}" ]] ; then
+        opt="${opt^^}"
+        if is_config_var "${opt}" ; then
+            if ${bashsafe} ; then
+                printf "%q\n" "${MAGIC_ENV[${opt}]}"
+            else
+                echo "${MAGIC_ENV[${opt}]}"
+            fi
+        else
+            die "Not a valid configuration variable: ${opt}"
+        fi
+    else
+        if ${bashsafe} ; then
+            declare -p MAGIC_ENV
+        else
+            for key in $(config_keys) ; do
+                echo "MAGIC_ENV[${key}] = \"${MAGIC_ENV[${key}]}\""
+            done
+        fi
+    fi
 }
 
 dispatch_cmd() {
     local cmd="${1:-help}" ; shift
 
     case "${cmd}" in
-        local) cmd_local ;;
-        help)  cmd_help  ;;
+        local)   cmd_local   "${@}" ;;
+        config)  cmd_config  "${@}" ;;
+        version) cmd_version "${@}" ;;
+        *)       cmd_help    "${@}" ;;
     esac
 }
 
