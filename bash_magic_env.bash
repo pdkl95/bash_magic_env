@@ -107,12 +107,62 @@ IFS=$':'
 declare -a MAGIC_ENV_CONFDIRS=( ${MAGIC_ENV_CONFIG} )
 IFS="${oldIFS}"
 
+_magic_env_echo() {
+    local -a opt
+    local prefix="MAGIC_ENV" mode="" section=""
+    local on_verbose=false
+
+    while true ; do
+        case $1 in
+            -v) on_verbose=true    ; shift   ;;
+            -p) prefix="$2"        ; shift 2 ;;
+            -m) mode="$2"          ; shift 2 ;;
+            -s) section="$2"       ; shift 2 ;;
+            -*) opt[${#opt[@]}]=$1 ; shift   ;;
+            *)  break ;;
+        esac
+    done
+
+    ${on_verbose} && ! ${MAGIC_ENV[VERBOSE]} && return 0
+
+    [[ -n "${mode}"    ]] && mode=" *${mode}*"
+    [[ -n "${section}" ]] && section=" ${section}>"
+
+    echo ${opt[*]} "${prefix}:${section}${mode} ${@}"
+}
+
+_magic_env_error() {
+    _magic_env_echo -m "ERROR" "${@}" 1>&2
+    return 1
+}
+
+_magic_env_file_has_problems() {
+    local section="$1" file="$2"
+    if ! [[ -f "${file}" ]] ; then
+        _magic_env_error -s "${section}" "not a file: ${file}"
+        return 0
+    fi
+    if ! [[ -r "${file}" ]] ; then
+        _magic_env_error -s "${section}" "not readable: ${file}"
+        return 0
+    fi
+    return 1
+}
+
+_magic_env_exec_file() {
+    _magic_env_file_has_problems "${1}" "${2}" && return 1
+    . "${2}"
+    return 0
+}
+
 # load our configuration
 declare file
 for dir in "${MAGIC_ENV_CONFDIRS[@]}" ; do
     file="${dir}/config"
-    if [[ -f "${file}" ]] && [[ -r "${file}" ]] ; then
-        . "${file}"
+    if [[ -e "${file}" ]] ; then
+        if ! _magic_env_exec_file CONFIG "${file}" ; then
+            _magic_env_error "skipped loading config file: ${file}"
+        fi
     fi
 done
 unset file
@@ -129,23 +179,6 @@ unset me_set
 if ${MAGIC_ENV[DUMP_CONFIG]} ; then
     declare -p MAGIC_ENV MAGIC_ENV_CONFDIRS
 fi
-
-_magic_env_echo() {
-    local -a opt
-    local on_verbose=false
-    while [[ "$1" =~ ^- ]] ; do
-        if [[ "$1" == "-v" ]] ; then
-            on_verbose=true
-        else
-            opt+=( "$1" )
-        fi
-        shift
-    done
-    if ${on_verbose} && ! ${MAGIC_ENV[VERBOSE]} ; then
-        return 0
-    fi
-    echo ${opt[*]} "MAGIC_ENV: ${@}"
-}
 
 _magic_env_listdef() {
     read -r -d '' script <<'EOF'
@@ -180,29 +213,26 @@ _magic_env_load() {
     local dir="${1}"
     local loader="${dir}/${MAGIC_ENV[LOADER]}"
 
-    _magic_env_echo -v "LOAD -> \"${dir}\""
+    _magic_env_echo -v -s LOAD "${dir}"
 
     if [[ -n "${MAGIC_ENV_ACTIVE[${dir}]}" ]] ; then
         return    # only if new (no double loading)
     fi
 
-    if ! [[ -r  "${loader}" ]] ; then
-        return    # only if the local environment file is present
-    fi
+    local _magic_env_vars_prev _magic_env_vars_cur
+    _magic_env_vars_prev="$(_magic_env_listdef)"
+    _magic_env_exec_file LOAD "${loader}"
+    _magic_env_vars_cur="$(_magic_env_listdef)"
 
-    local prev cur env_vars local
-    prev="$(_magic_env_listdef)"
-    . "${loader}"
-    cur="$(_magic_env_listdef)"
-    env_vars="$(_magic_env_list_prune \
-        <(_magic_env_array_to_list "${prev[@]}") \
-        <(_magic_env_array_to_list "${cur[@]}") )"
-    len="$(echo "${env_vars}" | wc -w)"
+    local env_vars="$(_magic_env_list_prune \
+        <(_magic_env_array_to_list "${_magic_env_vars_prev[@]}") \
+        <(_magic_env_array_to_list "${_magic_env_vars_cur[@]}") )"
+    local len="$(echo "${env_vars}" | wc -w)"
 
     ${MAGIC_ENV[SHOW_CHANGES]} && {
         (( len > 0 )) && declare -p ${env_vars}
     }
-    _magic_env_echo -v "loaded ${len} vars form: ${loader}"
+    _magic_env_echo -v -s LOAD "${len} new vars form: ${loader}"
 
     local hdr="active"
     MAGIC_ENV_ACTIVE[${dir}]="${hdr}|${env_vars}"
@@ -210,7 +240,7 @@ _magic_env_load() {
 
 _magic_env_unload() {
     local dir="${1}"
-    _magic_env_echo -v "UNLOAD -> \"${dir}\""
+    _magic_env_echo -v -s UNLOAD "\"${dir}\""
 
     [[ -z "${dir}" ]] && return
 
@@ -221,7 +251,7 @@ _magic_env_unload() {
     [[ -z "${var}" ]] && return
 
     local unloader="${dir}/${MAGIC_ENV[UNLOADER]}"
-    [[ -r "${unloader}" ]] && . "${unloader}"
+    [[ -e "${unloader}" ]] && _magic_env_exec_file UNLOAD "${unloader}"
 
     ${MAGIC_ENV[SHOW_CHANGES]} && echo unset ${var}
     unset ${var}
@@ -250,13 +280,18 @@ _magic_env_scan_parents() {
     done
 }
 
+_magic_env_scan_active() {
+    _magic_env_scan_parents "${MAGIC_ENV[LOADER]}"
+}
+
+
 # must be called every time the workign directory changes!
 _magic_env_update() {
     local pwd="$PWD" dir
 
     if [[ "${pwd}" != "${MAGIC_ENV[PWD]}" ]] ; then
 
-        local -a active=( $(_magic_env_scan_parents "${MAGIC_ENV[LOADER]}") )
+        local -a active=( $(_magic_env_scan_active) )
         local -a unload=( $(_magic_env_list_prune \
             <(_magic_env_array_to_list "${active[@]}") \
             <(_magic_env_array_to_list "${!MAGIC_ENV_ACTIVE[@]}")) )
