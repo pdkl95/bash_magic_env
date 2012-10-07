@@ -91,13 +91,43 @@ APPNAME="magic_env"
 [[ -v MAGIC_ENV_ACTIVE ]] || declare -A MAGIC_ENV_ACTIVE
 [[ -v MAGIC_ENV        ]] || declare -A MAGIC_ENV
 
+USER_CONF_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/${APPNAME}"
+USER_CONF_FILE="${USER_CONF_DIR}/config"
+
+[[ -e "${USER_CONF_DIR}"  ]] || mkdir -p "${USER_CONF_DIR}"
+[[ -e "${USER_CONF_FILE}" ]] || cat <<EOF > "${USER_CONF_FILE}"
+# suppress the printing of variable changes
+# when entering/exiting a new environment
+#MAGIC_ENV[SHOW_CHANGES]=false
+
+# be verbose on what we are doing
+# (warning: rather spammy)
+#MAGIC_ENV[VERBOSE]=true
+
+# dump the final configuration after loading has finished
+# (may be useful for debugging)
+#MAGIC_ENV[DUMP_CONFIG]=true
+
+# set the name of the per-directory loader script
+# (default value)
+#MAGIC_ENV[LOADER]=".${APPNAME}"
+
+# set the name of the optional per-directory unloader script
+# (default value)
+#MAGIC_ENV[UNLOADER]="${MAGIC_ENV[LOADER]}.unload"
+
+# Local Variables:
+# mode: sh
+# sh-shell: bash
+# End:
+EOF
+
 # if we have no config, load the standard user config
-if [[ -z "${MAGIC_ENV_CONFIG}" ]] ; then
-    USER_CONF_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/${APPNAME}"
-    mkdir -p "${USER_CONF_DIR}"
-    MAGIC_ENV_CONFIG="${USER_CONF_DIR}"
-    unset USER_CONF_DIR
-fi
+[[ -z "${MAGIC_ENV_CONFIG}" ]] && MAGIC_ENV_CONFIG="${USER_CONF_DIR}"
+
+unset USER_CONF_FILE USER_CONF_DIR
+
+
 
 # move the config list into an array for sane iterating
 # (*sigh* - this would be the main var, except for the
