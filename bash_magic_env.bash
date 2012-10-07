@@ -71,7 +71,7 @@
 
 
 ###  Trap direct-running, as it's useless
-if [[ $_ == $0 ]] ; then
+if false ; then # [[ $_ == $0 ]] ; then
 cat <<EOF
 Running $(basename $0) directly will not do anything - it cannot
 modify your currently-running shell! Instead, tell your current
@@ -85,18 +85,67 @@ EOF
     exit 1
 fi
 
-# our main footprint on the in the environment
-[[ -v MAGIC_ENV        ]] || declare -A MAGIC_ENV
+APPNAME="magic_env"
+
+[[ -v MAGIC_ENV_CONFIG ]] || declare -x MAGIC_ENV_CONFIG
 [[ -v MAGIC_ENV_ACTIVE ]] || declare -A MAGIC_ENV_ACTIVE
+[[ -v MAGIC_ENV        ]] || declare -A MAGIC_ENV
+
+# if we have no config, load the standard user config
+if [[ -z "${MAGIC_ENV_CONFIG}" ]] ; then
+    USER_CONF_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/${APPNAME}"
+    mkdir -p "${USER_CONF_DIR}"
+    MAGIC_ENV_CONFIG="${USER_CONF_DIR}"
+    unset USER_CONF_DIR
+fi
+
+# move the config list into an array for sane iterating
+# (*sigh* - this would be the main var, except for the
+#           problem that arrays are never exported...)
+oldIFS="${IFS}"
+IFS=$':'
+declare -a MAGIC_ENV_CONFDIRS=( ${MAGIC_ENV_CONFIG} )
+IFS="${oldIFS}"
+
+# load our configuration
+declare file
+for dir in "${MAGIC_ENV_CONFDIRS[@]}" ; do
+    file="${dir}/config"
+    if [[ -f "${file}" ]] && [[ -r "${file}" ]] ; then
+        . "${file}"
+    fi
+done
+unset file
 
 # settings
 me_set() { [[ -z "${MAGIC_ENV[${1}]}" ]] && MAGIC_ENV[${1}]="$2" ; };
 me_set SHOW_CHANGES true
 me_set VERBOSE      false
-me_set LOADER       ".magic_env"
+me_set DUMP_CONFIG  false
+me_set LOADER       ".${APPNAME}"
 me_set UNLOADER     "${MAGIC_ENV[LOADER]}.unload"
-me_set CONFDIR      "${XDG_CONFIG_HOME:-${HOME}/.config}/magic_env"
 unset me_set
+
+if ${MAGIC_ENV[DUMP_CONFIG]} ; then
+    declare -p MAGIC_ENV MAGIC_ENV_CONFDIRS
+fi
+
+_magic_env_echo() {
+    local -a opt
+    local on_verbose=false
+    while [[ "$1" =~ ^- ]] ; do
+        if [[ "$1" == "-v" ]] ; then
+            on_verbose=true
+        else
+            opt+=( "$1" )
+        fi
+        shift
+    done
+    if ${on_verbose} && ! ${MAGIC_ENV[VERBOSE]} ; then
+        return 0
+    fi
+    echo ${opt[*]} "MAGIC_ENV: ${@}"
+}
 
 _magic_env_listdef() {
     read -r -d '' script <<'EOF'
@@ -105,6 +154,12 @@ s/^declare\s\S+?\s([^ =]+)=?.*$/\1/g
 EOF
 
     declare -p | sed -re "${script}" | sort --stable
+}
+
+_magic_env_array_to_list() {
+    for i in "${@}" ; do
+        echo "$i"
+    done | sort --stable
 }
 
 _magic_env_list_prune() {
@@ -125,7 +180,7 @@ _magic_env_load() {
     local dir="${1}"
     local loader="${dir}/${MAGIC_ENV[LOADER]}"
 
-    ${MAGIC_ENV[VERBOSE]} && echo "REQ: [${dir}] -> Load"
+    _magic_env_echo -v "LOAD -> \"${dir}\""
 
     if [[ -n "${MAGIC_ENV_ACTIVE[${dir}]}" ]] ; then
         return    # only if new (no double loading)
@@ -135,7 +190,7 @@ _magic_env_load() {
         return    # only if the local environment file is present
     fi
 
-    local cur env_vars local
+    local prev cur env_vars local
     prev="$(_magic_env_listdef)"
     . "${loader}"
     cur="$(_magic_env_listdef)"
@@ -144,10 +199,10 @@ _magic_env_load() {
         <(_magic_env_array_to_list "${cur[@]}") )"
     len="$(echo "${env_vars}" | wc -w)"
 
-    ${MAGIC_ENV[VERBOSE]}      && echo "loaded ${len} vars form: ${loader}"
     ${MAGIC_ENV[SHOW_CHANGES]} && {
         (( len > 0 )) && declare -p ${env_vars}
     }
+    _magic_env_echo -v "loaded ${len} vars form: ${loader}"
 
     local hdr="active"
     MAGIC_ENV_ACTIVE[${dir}]="${hdr}|${env_vars}"
@@ -155,7 +210,7 @@ _magic_env_load() {
 
 _magic_env_unload() {
     local dir="${1}"
-    ${MAGIC_ENV[VERBOSE]} && echo "REQ: [${dir}] -> Unload"
+    _magic_env_echo -v "UNLOAD -> \"${dir}\""
 
     [[ -z "${dir}" ]] && return
 
@@ -165,7 +220,6 @@ _magic_env_unload() {
 
     [[ -z "${var}" ]] && return
 
-    ${MAGIC_ENV[VERBOSE]} && echo "UNLOAD: ${dir}"
     local unloader="${dir}/${MAGIC_ENV[UNLOADER]}"
     [[ -r "${unloader}" ]] && . "${unloader}"
 
@@ -196,16 +250,11 @@ _magic_env_scan_parents() {
     done
 }
 
-_magic_env_array_to_list() {
-    for i in "${@}" ; do
-        echo "$i"
-    done | sort --stable
-}
-
 # must be called every time the workign directory changes!
 _magic_env_update() {
     local pwd="$PWD" dir
-    if [[ "${pwd}" != "${MAGIC_ENV[PWD]}" ]]; then
+
+    if [[ "${pwd}" != "${MAGIC_ENV[PWD]}" ]] ; then
 
         local -a active=( $(_magic_env_scan_parents "${MAGIC_ENV[LOADER]}") )
         local -a unload=( $(_magic_env_list_prune \
@@ -244,6 +293,9 @@ if ! [[ -v DEFS_ONLY ]] ; then
     _magic_env_update
 fi
 
+
+# cleanup temporary variables
+unset APPNAME
 
 
 # Local Variables:
