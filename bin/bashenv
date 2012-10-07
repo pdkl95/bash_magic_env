@@ -59,9 +59,11 @@ show_help() {
 show_help_cmdlist() {
     cat <<EOF
 COMMANDS:
-  help  [topic]        Display this help, or help on a specific command
   local [env_to_use]   Display the current locally-loaded environments,
                        or set the current directory to the named environmet
+
+  help  [topic]        Display this help, or help on a specific command
+  version              Display the version number for ${PACKAGE_NAME}
 EOF
 }
 
